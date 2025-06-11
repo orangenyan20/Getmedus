@@ -101,7 +101,7 @@ def create_word_doc(pages_data, search_query, include_images=True):
 
 
 # Streamlit UI
-st.title("Medu4 問題番号リスト版")
+st.title("Medu4 問題番号から収集")
 
 uploaded_file = st.file_uploader("問題番号のファイルをアップロード（.txt or .csv）", type=["txt", "csv"])
 include_images = st.checkbox("画像も含める", value=True)
