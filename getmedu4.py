@@ -6,14 +6,13 @@ import time
 from io import BytesIO
 from docx import Document
 from docx.shared import Inches
-import chardet
 
-# --- 問題番号からURL生成 ---
+# 問題番号からURL生成
 def generate_urls_from_ids(question_ids):
     base_url = "https://medu4.com/"
     return [f"{base_url}{qid.strip()}" for qid in question_ids if qid.strip()]
 
-# --- ページ内容取得 ---
+# ページ内容の取得
 def get_page_text(url, get_images=True):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -61,7 +60,7 @@ def get_page_text(url, get_images=True):
         "images": image_urls
     }
 
-# --- Wordファイル生成 ---
+# Wordファイルを作る関数
 def create_word_doc(pages_data, search_query, include_images=True):
     doc = Document()
     doc.add_heading('検索結果', 0)
@@ -96,37 +95,42 @@ def create_word_doc(pages_data, search_query, include_images=True):
     doc.save(filename)
     return filename
 
-# --- Streamlit UI ---
-st.title("Medu4 問題番号から収集ツール")
+
+# Streamlit UI
+st.title("Medu4 問題番号から収集")
+
 uploaded_file = st.file_uploader("問題番号のファイルをアップロード（.txt or .csv）", type=["txt", "csv"])
 include_images = st.checkbox("画像も含める", value=True)
 
-if uploaded_file:
-    # chardetでエンコード自動判定
+def read_file_with_fallbacks(uploaded_file):
     raw_bytes = uploaded_file.read()
-    result = chardet.detect(raw_bytes)
-    encoding = result['encoding'] or 'utf-8'  # 失敗時はutf-8でフォールバック
-    try:
-        text = raw_bytes.decode(encoding)
-    except UnicodeDecodeError:
-        st.error(f"エンコードの判定に失敗しました（推定: {encoding}）。ファイル形式を確認してください。")
-        st.stop()
+    encodings_to_try = ['utf-8', 'shift_jis', 'cp932', 'utf-16']
 
-    question_ids = [line.strip() for line in text.splitlines() if line.strip()]
-    urls = generate_urls_from_ids(question_ids)
+    for enc in encodings_to_try:
+        try:
+            return raw_bytes.decode(enc).splitlines()
+        except UnicodeDecodeError:
+            continue
+    st.error("対応する文字コードでファイルを読み込めませんでした。")
+    return []
 
-    st.write(f"{len(urls)}個の問題を取得します。")
-    progress_bar = st.progress(0)
-    pages_data = []
+if uploaded_file:
+    question_ids = read_file_with_fallbacks(uploaded_file)
+    if question_ids:
+        urls = generate_urls_from_ids(question_ids)
 
-    for i, url in enumerate(urls):
-        page_data = get_page_text(url, get_images=include_images)
-        pages_data.append(page_data)
-        progress_bar.progress((i + 1) / len(urls))
+        st.write(f"{len(urls)}個の問題を取得します。")
+        progress_bar = st.progress(0)
+        pages_data = []
 
-    with st.spinner("Wordファイルを作成中..."):
-        filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
+        for i, url in enumerate(urls):
+            page_data = get_page_text(url, get_images=include_images)
+            pages_data.append(page_data)
+            progress_bar.progress((i + 1) / len(urls))
 
-    st.success("Wordファイルの生成が完了！")
-    with open(filename, "rb") as file:
-        st.download_button("📄 Wordファイルをダウンロード", file, file_name=filename)
+        with st.spinner("Wordファイルを作成中..."):
+            filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
+
+        st.success("Wordファイルの生成が完了")
+        with open(filename, "rb") as file:
+            st.download_button("📄 Wordファイルをダウンロード", file, file_name=filename)
