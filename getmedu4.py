@@ -6,14 +6,14 @@ import time
 from io import BytesIO
 from docx import Document
 from docx.shared import Inches
+import chardet
 
-# 問題番号からURL生成
+# --- 問題番号からURL生成 ---
 def generate_urls_from_ids(question_ids):
     base_url = "https://medu4.com/"
     return [f"{base_url}{qid.strip()}" for qid in question_ids if qid.strip()]
 
-# ページ内容の取得（中略：今のget_page_text関数をそのまま使える）
-# ページ内容を取得（画像あり／なし切替対応）
+# --- ページ内容取得 ---
 def get_page_text(url, get_images=True):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -61,9 +61,7 @@ def get_page_text(url, get_images=True):
         "images": image_urls
     }
 
-
-# Wordファイル生成（中略：create_word_docもそのままでOK）
-# Word出力（ローカル保存せずに画像埋め込み）
+# --- Wordファイル生成 ---
 def create_word_doc(pages_data, search_query, include_images=True):
     doc = Document()
     doc.add_heading('検索結果', 0)
@@ -98,16 +96,23 @@ def create_word_doc(pages_data, search_query, include_images=True):
     doc.save(filename)
     return filename
 
-
-
-# Streamlit UI
-st.title("Medu4 問題番号から収集")
-
+# --- Streamlit UI ---
+st.title("Medu4 問題番号から収集ツール")
 uploaded_file = st.file_uploader("問題番号のファイルをアップロード（.txt or .csv）", type=["txt", "csv"])
 include_images = st.checkbox("画像も含める", value=True)
 
 if uploaded_file:
-    question_ids = uploaded_file.read().decode('utf-8').splitlines()
+    # chardetでエンコード自動判定
+    raw_bytes = uploaded_file.read()
+    result = chardet.detect(raw_bytes)
+    encoding = result['encoding'] or 'utf-8'  # 失敗時はutf-8でフォールバック
+    try:
+        text = raw_bytes.decode(encoding)
+    except UnicodeDecodeError:
+        st.error(f"エンコードの判定に失敗しました（推定: {encoding}）。ファイル形式を確認してください。")
+        st.stop()
+
+    question_ids = [line.strip() for line in text.splitlines() if line.strip()]
     urls = generate_urls_from_ids(question_ids)
 
     st.write(f"{len(urls)}個の問題を取得します。")
@@ -122,6 +127,6 @@ if uploaded_file:
     with st.spinner("Wordファイルを作成中..."):
         filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
 
-    st.success("Wordファイルの生成が完了")
+    st.success("Wordファイルの生成が完了！")
     with open(filename, "rb") as file:
         st.download_button("📄 Wordファイルをダウンロード", file, file_name=filename)
