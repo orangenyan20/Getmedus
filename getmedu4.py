@@ -131,7 +131,15 @@ include_images = st.checkbox("画像も含める", value=True)
 
 # ファイル読み込み（複数エンコーディング対応）
 def try_read_file(file):
-    encodings = ['utf-8', 'shift_jis', 'cp932', 'iso-2022-jp']
+     encodings = [
+        'utf-8',
+        'shift_jis',
+        'cp932',
+        'iso-2022-jp',
+        'utf-16',
+        'utf-16-le',
+        'utf-16-be'
+    ]
     raw = file.read()
     for enc in encodings:
         try:
