@@ -7,26 +7,33 @@ from io import BytesIO
 from docx import Document
 from docx.shared import Inches
 
-# --- 問題番号からURLを生成 ---
+# ファイル読み込み（複数エンコーディング対応）
+def try_read_file(file):
+    encodings = [
+        'utf-8', 'shift_jis', 'cp932',
+        'iso-2022-jp', 'utf-16', 'utf-16-le', 'utf-16-be'
+    ]
+    raw = file.read()
+    for enc in encodings:
+        try:
+            lines = raw.decode(enc).splitlines()
+            return [line.strip('\ufeff') for line in lines if line.strip()]
+        except:
+            continue
+    st.error("❌ ファイルの読み込みに失敗しました。文字コードを確認してください。")
+    return []
+
+# 問題番号からURL生成
 def generate_urls_from_ids(question_ids):
     base_url = "https://medu4.com/"
     return [f"{base_url}{qid.strip()}" for qid in question_ids if qid.strip()]
 
-# --- ページ情報取得（問題文・選択肢・解説など） ---
+# ページ内容取得
 def get_page_text(url, get_images=True):
     try:
         response = requests.get(url)
         if response.status_code != 200:
-            st.warning(f"❌ URL取得失敗: {url}")
-            return {
-                "category": "取得失敗",
-                "problem": "問題文なし",
-                "choices": [],
-                "answer": "解答なし",
-                "question_id": "問題番号なし",
-                "explanation": "解説なし",
-                "images": []
-            }
+            return None
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -38,12 +45,9 @@ def get_page_text(url, get_images=True):
 
         choices = []
         for choice in soup.find_all('div', class_='box-select'):
-            try:
-                choice_header = choice.find('span', {'class': 'choice-header'}).text.strip()
-                choice_text = choice.find_all('span')[1].text.strip()
-                choices.append(f"{choice_header} {choice_text}")
-            except:
-                continue
+            choice_header = choice.find('span', {'class': 'choice-header'}).text.strip()
+            choice_text = choice.find_all('span')[1].text.strip()
+            choices.append(f"{choice_header} {choice_text}")
 
         h4_tags = soup.find_all('h4')
         answer_text = '解答なし'
@@ -75,20 +79,10 @@ def get_page_text(url, get_images=True):
             "explanation": explanation_text,
             "images": image_urls
         }
-
     except Exception as e:
-        st.error(f"⚠️ エラー: {url} - {e}")
-        return {
-            "category": "エラー",
-            "problem": "問題文なし",
-            "choices": [],
-            "answer": "解答なし",
-            "question_id": "問題番号なし",
-            "explanation": "解説なし",
-            "images": []
-        }
+        return None
 
-# --- Wordファイル生成 ---
+# Wordファイル生成
 def create_word_doc(pages_data, search_query, include_images=True):
     doc = Document()
     doc.add_heading('検索結果', 0)
@@ -123,50 +117,32 @@ def create_word_doc(pages_data, search_query, include_images=True):
     doc.save(filename)
     return filename
 
-# --- Streamlit UI ---
-st.title("🩺 Medu4 問題番号 一括収集ツール")
+# Streamlit UI
+st.title("🩺 Medu4 問題番号から収集ツール")
 
-uploaded_file = st.file_uploader("問題番号のファイルをアップロード（.txt or .csv）", type=["txt", "csv"])
-include_images = st.checkbox("画像も含める", value=True)
-
-# ファイル読み込み（複数エンコーディング対応）
-def try_read_file(file):
-     encodings = [
-        'utf-8',
-        'shift_jis',
-        'cp932',
-        'iso-2022-jp',
-        'utf-16',
-        'utf-16-le',
-        'utf-16-be'
-    ]
-    raw = file.read()
-    for enc in encodings:
-        try:
-            return raw.decode(enc).splitlines()
-        except:
-            continue
-    st.error("❌ ファイルの読み込みに失敗しました。文字コードを確認してください。")
-    return []
+uploaded_file = st.file_uploader("📄 問題番号のファイルをアップロード（.txt / .csv）", type=["txt", "csv"])
+include_images = st.checkbox("🖼️ 画像も含める", value=True)
 
 if uploaded_file:
     question_ids = try_read_file(uploaded_file)
-    st.write(f"読み込んだ問題ID数: {len(question_ids)}")
     urls = generate_urls_from_ids(question_ids)
 
-    st.write(f"{len(urls)}件の問題を取得します")
+    st.write(f"{len(urls)}個の問題を取得します。")
     progress_bar = st.progress(0)
     pages_data = []
 
     for i, url in enumerate(urls):
         page_data = get_page_text(url, get_images=include_images)
-        pages_data.append(page_data)
+        if page_data:
+            pages_data.append(page_data)
+        else:
+            st.warning(f"❌ URL取得失敗: {url}")
         progress_bar.progress((i + 1) / len(urls))
-        time.sleep(0.2)  # サーバー負荷軽減のため遅延
+        time.sleep(0.2)  # ← サーバー負荷対策のためウェイト
 
-    with st.spinner("📄 Wordファイルを作成中..."):
+    with st.spinner("Wordファイルを作成中..."):
         filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
 
     st.success("✅ Wordファイルの生成が完了しました！")
     with open(filename, "rb") as file:
-        st.download_button("📥 Wordファイルをダウンロード", file, file_name=filename)
+        st.download_button("📄 Wordファイルをダウンロード", file, file_name=filename)
