@@ -101,7 +101,7 @@ def create_word_doc(pages_data, search_query, include_images=True):
 
 
 # Streamlit UI
-st.title("Medu4 問題番号リスト版")
+st.title("Medu4 問題番号から収集")
 
 uploaded_file = st.file_uploader("問題番号のファイルをアップロード（.txt or .csv）", type=["txt", "csv"])
 include_images = st.checkbox("画像も含める", value=True)
@@ -122,6 +122,6 @@ if uploaded_file:
     with st.spinner("Wordファイルを作成中..."):
         filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
 
-    st.success("Wordファイルが完成したで！")
+    st.success("Wordファイルの生成が完了")
     with open(filename, "rb") as file:
         st.download_button("📄 Wordファイルをダウンロード", file, file_name=filename)
