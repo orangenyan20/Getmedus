@@ -7,28 +7,40 @@ from io import BytesIO
 from docx import Document
 from docx.shared import Inches
 
-# ファイル読み込み（複数エンコーディング対応）
-def try_read_file(file):
-    encodings = [
-        'utf-8', 'shift_jis', 'cp932',
-        'iso-2022-jp', 'utf-16', 'utf-16-le', 'utf-16-be'
-    ]
-    raw = file.read()
-    for enc in encodings:
-        try:
-            lines = raw.decode(enc).splitlines()
-            return [line.strip('\ufeff') for line in lines if line.strip()]
-        except:
-            continue
-    st.error("❌ ファイルの読み込みに失敗しました。文字コードを確認してください。")
-    return []
+# ファイル読み込み（BOM除去 + 多エンコーディング対応）
+def try_read_file(uploaded_file):
+    raw_bytes = uploaded_file.read()
+
+    # BOMチェックと除去
+    if raw_bytes.startswith(b'\xff\xfe'):  # UTF-16 LE BOM
+        encoding = 'utf-16'
+    elif raw_bytes.startswith(b'\xfe\xff'):  # UTF-16 BE BOM
+        encoding = 'utf-16'
+    elif raw_bytes.startswith(b'\xef\xbb\xbf'):  # UTF-8 BOM
+        encoding = 'utf-8-sig'
+    else:
+        encodings = ['utf-8', 'shift_jis', 'cp932', 'iso-2022-jp', 'utf-16', 'utf-16-le', 'utf-16-be']
+        for enc in encodings:
+            try:
+                return [line.strip() for line in raw_bytes.decode(enc).splitlines() if line.strip()]
+            except:
+                continue
+        st.error("❌ ファイルの読み込みに失敗しました。文字コードを確認してください。")
+        return []
+
+    # BOMがあった場合
+    try:
+        return [line.strip() for line in raw_bytes.decode(encoding).splitlines() if line.strip()]
+    except:
+        st.error("❌ BOM付きファイルの読み込みに失敗しました。")
+        return []
 
 # 問題番号からURL生成
 def generate_urls_from_ids(question_ids):
     base_url = "https://medu4.com/"
     return [f"{base_url}{qid.strip()}" for qid in question_ids if qid.strip()]
 
-# ページ内容取得
+# ページデータ取得
 def get_page_text(url, get_images=True):
     try:
         response = requests.get(url)
@@ -82,7 +94,7 @@ def get_page_text(url, get_images=True):
     except Exception as e:
         return None
 
-# Wordファイル生成
+# Wordファイル作成
 def create_word_doc(pages_data, search_query, include_images=True):
     doc = Document()
     doc.add_heading('検索結果', 0)
@@ -125,6 +137,9 @@ include_images = st.checkbox("🖼️ 画像も含める", value=True)
 
 if uploaded_file:
     question_ids = try_read_file(uploaded_file)
+    if not question_ids:
+        st.stop()
+
     urls = generate_urls_from_ids(question_ids)
 
     st.write(f"{len(urls)}個の問題を取得します。")
@@ -138,7 +153,7 @@ if uploaded_file:
         else:
             st.warning(f"❌ URL取得失敗: {url}")
         progress_bar.progress((i + 1) / len(urls))
-        time.sleep(0.2)  # ← サーバー負荷対策のためウェイト
+        time.sleep(0.2)  # サーバー負荷対策
 
     with st.spinner("Wordファイルを作成中..."):
         filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
