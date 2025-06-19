@@ -10,13 +10,11 @@ from docx.shared import Inches
 # ファイル読み込み（BOM除去 + 多エンコーディング対応）
 def try_read_file(uploaded_file):
     raw_bytes = uploaded_file.read()
-
-    # BOMチェックと除去
-    if raw_bytes.startswith(b'\xff\xfe'):  # UTF-16 LE BOM
+    if raw_bytes.startswith(b'\xff\xfe'):
         encoding = 'utf-16'
-    elif raw_bytes.startswith(b'\xfe\xff'):  # UTF-16 BE BOM
+    elif raw_bytes.startswith(b'\xfe\xff'):
         encoding = 'utf-16'
-    elif raw_bytes.startswith(b'\xef\xbb\xbf'):  # UTF-8 BOM
+    elif raw_bytes.startswith(b'\xef\xbb\xbf'):
         encoding = 'utf-8-sig'
     else:
         encodings = ['utf-8', 'shift_jis', 'cp932', 'iso-2022-jp', 'utf-16', 'utf-16-le', 'utf-16-be']
@@ -27,8 +25,6 @@ def try_read_file(uploaded_file):
                 continue
         st.error("❌ ファイルの読み込みに失敗しました。文字コードを確認してください。")
         return []
-
-    # BOMがあった場合
     try:
         return [line.strip() for line in raw_bytes.decode(encoding).splitlines() if line.strip()]
     except:
@@ -40,7 +36,7 @@ def generate_urls_from_ids(question_ids):
     base_url = "https://medu4.com/"
     return [f"{base_url}{qid.strip()}" for qid in question_ids if qid.strip()]
 
-# ページデータ取得（画像複数対応）
+# ページデータ取得（正答率追加）
 def get_page_text(url, get_images=True):
     try:
         response = requests.get(url)
@@ -77,11 +73,18 @@ def get_page_text(url, get_images=True):
         if get_images:
             image_divs = soup.find_all('div', class_='box-quiz-image mb-32')
             for div in image_divs:
-                img_tags = div.find_all('img')  # ← 複数枚対応に変更
-                for img_tag in img_tags:
-                    if img_tag and img_tag.get('src'):
+                for img_tag in div.find_all('img'):
+                    if img_tag.get('src'):
                         img_url = img_tag['src'].replace('thumb_', '')
                         image_urls.append(img_url)
+
+        # 正答率
+        accuracy = '正答率不明'
+        for p in soup.find_all('p', class_='commentary-date'):
+            match = re.search(r'正答率：(\d+)%', p.text)
+            if match:
+                accuracy = int(match.group(1))
+                break
 
         return {
             "category": category_name,
@@ -90,7 +93,8 @@ def get_page_text(url, get_images=True):
             "answer": answer_text,
             "question_id": question_id,
             "explanation": explanation_text,
-            "images": image_urls
+            "images": image_urls,
+            "accuracy": accuracy
         }
     except Exception as e:
         return None
@@ -104,6 +108,7 @@ def create_word_doc(pages_data, search_query, include_images=True):
     for idx, page_data in enumerate(pages_data, start=1):
         title = f"問題{idx} {page_data['question_id']}"
         doc.add_paragraph(title, style='Heading2')
+        doc.add_paragraph(f"正答率: {page_data['accuracy']}%")
         doc.add_paragraph(f"問題文: {page_data['problem']}")
 
         if include_images and page_data['images']:
@@ -135,6 +140,7 @@ st.title("🩺 Medu4 問題番号から収集ツール")
 
 uploaded_file = st.file_uploader("📄 問題番号のファイルをアップロード（.txt / .csv）", type=["txt", "csv"])
 include_images = st.checkbox("🖼️ 画像も含める", value=True)
+sort_by_accuracy = st.checkbox("📉 正答率が低い順に並び替える", value=False)
 
 if uploaded_file:
     question_ids = try_read_file(uploaded_file)
@@ -154,7 +160,11 @@ if uploaded_file:
         else:
             st.warning(f"❌ URL取得失敗: {url}")
         progress_bar.progress((i + 1) / len(urls))
-        time.sleep(0.2)  # サーバー負荷対策
+        time.sleep(0.2)
+
+    # 並び替え
+    if sort_by_accuracy:
+        pages_data.sort(key=lambda x: (x["accuracy"] if isinstance(x["accuracy"], int) else 9999))
 
     with st.spinner("Wordファイルを作成中..."):
         filename = create_word_doc(pages_data, "問題番号リスト", include_images=include_images)
