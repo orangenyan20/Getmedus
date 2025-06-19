@@ -40,7 +40,7 @@ def generate_urls_from_ids(question_ids):
     base_url = "https://medu4.com/"
     return [f"{base_url}{qid.strip()}" for qid in question_ids if qid.strip()]
 
-# ページデータ取得
+# ページデータ取得（画像複数対応）
 def get_page_text(url, get_images=True):
     try:
         response = requests.get(url)
@@ -77,10 +77,11 @@ def get_page_text(url, get_images=True):
         if get_images:
             image_divs = soup.find_all('div', class_='box-quiz-image mb-32')
             for div in image_divs:
-                img_tag = div.find('img')
-                if img_tag and img_tag.get('src'):
-                    img_url = img_tag['src'].replace('thumb_', '')
-                    image_urls.append(img_url)
+                img_tags = div.find_all('img')  # ← 複数枚対応に変更
+                for img_tag in img_tags:
+                    if img_tag and img_tag.get('src'):
+                        img_url = img_tag['src'].replace('thumb_', '')
+                        image_urls.append(img_url)
 
         return {
             "category": category_name,
